@@ -43,6 +43,9 @@ services:
 
   ai-monitor:
     build: .
+    env_file:
+      - path: .env
+        required: false
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
