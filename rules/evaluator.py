@@ -12,6 +12,11 @@ def evaluate_containers(cpu: dict[str, float], mem: dict[str, float]) -> list[di
     return breaches
 
 
+def evaluate_container_states(containers: list[dict]) -> list[dict]:
+    return [{"target": c["name"], "alert_type": "container_down", "value": c["status"]}
+            for c in containers if not c["running"]]
+
+
 def evaluate_node(node_cpu: float, node_mem: float, node_disk: float) -> list[dict]:
     breaches = []
     if node_cpu >= thresholds.CPU_PERCENT_THRESHOLD:

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 
 
@@ -34,6 +35,24 @@ async def list_containers() -> str:
 
 async def list_all_containers() -> str:
     return await _list_containers(all_containers=True)
+
+
+async def get_container_states() -> list[dict]:
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "ps", "-a", "--format", "{{json .}}",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise RuntimeError(stderr.decode().strip() or "Unable to query Docker containers")
+    states = []
+    for line in stdout.decode(errors="replace").splitlines():
+        item = json.loads(line)
+        status = item.get("Status", "")
+        states.append({"name": item.get("Names", "unknown"), "status": status,
+                       "image": item.get("Image", "unknown"),
+                       "running": status.lower().startswith("up")})
+    return states
 
 
 async def _list_containers(all_containers: bool) -> str:

@@ -2,8 +2,8 @@ import asyncio
 import config
 from collectors.prometheus_client import PrometheusClient
 from collectors.k3s_client import get_pods
-from rules.evaluator import evaluate_containers, evaluate_node, evaluate_pods
-from logs_fetch.docker_logs import get_container_logs
+from rules.evaluator import evaluate_container_states, evaluate_containers, evaluate_node, evaluate_pods
+from logs_fetch.docker_logs import get_container_logs, get_container_states
 from logs_fetch.k3s_logs import get_pod_logs
 from llm.client import diagnose, diagnose_batch
 from db.session import SessionLocal
@@ -34,6 +34,13 @@ async def _ready_breaches(breaches: list[dict]) -> list[dict]:
             if alert.breach_count >= config.BREACH_THRESHOLD_COUNT and not alert.notified:
                 ready.append(b)
     return ready
+
+
+async def _resolve_recovered_containers(containers: list[dict]):
+    async with SessionLocal() as session:
+        for container in containers:
+            if container["running"]:
+                await crud.resolve_alert(session, container["name"], "container_down")
 
 
 async def _dispatch(ready: list[dict]):
@@ -67,9 +74,12 @@ async def poll_once():
     node_mem = await prom.node_mem_percent()
     node_disk = await prom.node_disk_percent()
     pods = await get_pods(namespace=config.K3S_NAMESPACE)
+    containers = await get_container_states()
+    await _resolve_recovered_containers(containers)
 
     breaches = (
         evaluate_containers(cpu, mem)
+        + evaluate_container_states(containers)
         + evaluate_node(node_cpu, node_mem, node_disk)
         + evaluate_pods(pods)
     )

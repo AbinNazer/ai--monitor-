@@ -28,37 +28,47 @@ async def _ask_question(question: str):
 
 
 async def _send_log_result(channel, title: str, output: str):
-    if len(output) <= 3800:
-        await channel.send(embed=info_embed(title, f"```\n{output}\n```"))
+    lines = output.splitlines()
+    preview = "\n".join(lines[-25:]) if len(lines) > 25 else output
+    suffix = "\n\nFull output is attached." if len(lines) > 25 else ""
+    embed = info_embed(title, f"```text\n{preview[-3600:]}\n```{suffix}")
+    if len(lines) > 25:
+        file = discord.File(io.BytesIO(output.encode()), filename="container-logs.txt")
+        await channel.send(embed=embed, file=file)
     else:
-        file = discord.File(io.BytesIO(output.encode()), filename="container-errors.txt")
-        await channel.send(content=f"{title} — full results attached.", file=file)
+        await channel.send(embed=embed)
 
 
-def _format_containers(output: str) -> str:
+def _format_containers(output: str, down_only: bool = False) -> list[str]:
     rows = []
     for line in output.splitlines():
         parts = line.split("\t", 2)
         if len(parts) == 3:
             name, status, image = parts
             marker = "UP" if status.lower().startswith("up") else "DOWN"
+            if down_only and marker != "DOWN":
+                continue
             rows.append((marker, name, status, image))
     if not rows:
-        return output or "No containers found."
-    header = "STATE  NAME                         STATUS                 IMAGE"
-    separator = "─" * len(header)
-    lines = [header, separator]
-    lines.extend(f"{state:<6} {name[:28]:<28} {status[:22]:<22} {image[:40]}" for state, name, status, image in rows)
-    return "\n".join(lines)
+        return ["No containers found."]
+    return [f"{'🟢' if state == 'UP' else '🔴'} **{state}** `{name}`\n{status} · `{image}`" for state, name, status, image in rows]
 
 
-async def _send_container_result(channel, title: str, output: str):
-    formatted = _format_containers(output)
-    if len(formatted) <= 3800:
-        await channel.send(embed=info_embed(title, f"```text\n{formatted}\n```"))
-    else:
-        file = discord.File(io.BytesIO(formatted.encode()), filename="containers.txt")
-        await channel.send(content=f"{title} — full list attached.", file=file)
+async def _send_container_result(channel, title: str, output: str, down_only: bool = False):
+    formatted = _format_containers(output, down_only=down_only)
+    chunks, current = [], []
+    size = 0
+    for line in formatted:
+        if current and size + len(line) + 2 > 3500:
+            chunks.append("\n\n".join(current))
+            current, size = [], 0
+        current.append(line)
+        size += len(line) + 2
+    if current:
+        chunks.append("\n\n".join(current))
+    for index, chunk in enumerate(chunks, 1):
+        suffix = f" ({index}/{len(chunks)})" if len(chunks) > 1 else ""
+        await channel.send(embed=info_embed(f"{title}{suffix}", chunk))
 
 
 async def handle_natural_message(message: discord.Message) -> bool:
@@ -73,8 +83,9 @@ async def handle_natural_message(message: discord.Message) -> bool:
     ):
         include_stopped = any(word in lower for word in ("down", "stopped", "exited", "not running", "all"))
         output = await (list_all_containers() if include_stopped else list_containers())
-        title = "All Docker containers" if include_stopped else "Running Docker containers"
-        await _send_container_result(message.channel, title, output)
+        down_only = any(word in lower for word in ("down", "stopped", "exited", "not running")) and "all" not in lower
+        title = "Down Docker containers" if down_only else ("All Docker containers" if include_stopped else "Running Docker containers")
+        await _send_container_result(message.channel, title, output, down_only=down_only)
         return True
 
     if any(word in lower for word in ("pod", "kubernetes", "k8s")) and any(
