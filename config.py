@@ -11,8 +11,8 @@ DISCORD_CHANNEL_ID = int(os.environ["DISCORD_CHANNEL_ID"])
 
 NVIDIA_API_KEY = os.environ["NVIDIA_API_KEY"]
 NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
-NVIDIA_MODEL_DIAGNOSIS = os.getenv("NVIDIA_MODEL_DIAGNOSIS", "nvidia/llama-3.3-nemotron-super-49b-v1")
-NVIDIA_MODEL_TOOLCALL = os.getenv("NVIDIA_MODEL_TOOLCALL", "nvidia/llama-3.3-nemotron-super-49b-v1")
+NVIDIA_MODEL_DIAGNOSIS = os.getenv("NVIDIA_MODEL_DIAGNOSIS", "nvidia/llama-3.3-nemotron-super-49b-v1.5")
+NVIDIA_MODEL_TOOLCALL = os.getenv("NVIDIA_MODEL_TOOLCALL", "nvidia/llama-3.3-nemotron-super-49b-v1.5")
 
 POSTGRES_DSN = os.environ["POSTGRES_DSN"]
 
