@@ -59,7 +59,10 @@ async def handle_natural_message(message: discord.Message) -> bool:
         await message.channel.send(embed=info_embed("Pods", "\n".join(lines) or "No pods found"))
         return True
 
-    if "log" in lower:
+    is_error_log_request = any(word in lower for word in ("error", "errors", "exception", "failed", "failure")) and any(
+        word in lower for word in ("for", "from", "container")
+    )
+    if "log" in lower or is_error_log_request:
         words = text.split()
         marker = next((i for i, word in enumerate(words) if word.lower() in ("for", "of")), None)
         name = words[marker + 1] if marker is not None and marker + 1 < len(words) else (words[-1] if len(words) > 1 else "")

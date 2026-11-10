@@ -43,11 +43,13 @@ services:
 
   ai-monitor:
     build: .
+    network_mode: host
     env_file:
       - path: .env
         required: false
     environment:
       KUBECONFIG: /root/.kube/config
+      PROMETHEUS_URL: http://localhost:9091
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
