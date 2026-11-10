@@ -50,6 +50,7 @@ services:
     environment:
       KUBECONFIG: /root/.kube/config
       PROMETHEUS_URL: http://localhost:9091
+      PYTHONUNBUFFERED: "1"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

@@ -9,10 +9,16 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
-async def post_embed(embed: discord.Embed):
+async def post_embed(embed: discord.Embed) -> bool:
     channel = bot.get_channel(config.DISCORD_CHANNEL_ID)
-    if channel:
-        await channel.send(embed=embed)
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(config.DISCORD_CHANNEL_ID)
+        except (discord.DiscordException, discord.HTTPException):
+            print(f"Unable to access Discord channel {config.DISCORD_CHANNEL_ID}", flush=True)
+            return False
+    await channel.send(embed=embed)
+    return True
 
 
 @bot.event

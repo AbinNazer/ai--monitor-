@@ -57,14 +57,16 @@ async def _dispatch(ready: list[dict]):
             alert_text = f"{b['alert_type']} on {b['target']}: value={b['value']}"
             diagnosis = await diagnose(alert_text, logs_by_target[b["target"]])
             alert = await crud.get_open_alert(session, b["target"], b["alert_type"])
-            await crud.mark_diagnosed(session, alert, diagnosis)
-            await post_embed(alert_embed(b["target"], b["alert_type"], b["value"], diagnosis))
+            delivered = await post_embed(alert_embed(b["target"], b["alert_type"], b["value"], diagnosis))
+            if delivered:
+                await crud.mark_diagnosed(session, alert, diagnosis)
         else:
             diagnosis = await diagnose_batch(ready, logs_by_target)
+            delivered = await post_embed(batch_alert_embed(ready, diagnosis))
             for b in ready:
                 alert = await crud.get_open_alert(session, b["target"], b["alert_type"])
-                await crud.mark_diagnosed(session, alert, diagnosis)
-            await post_embed(batch_alert_embed(ready, diagnosis))
+                if delivered:
+                    await crud.mark_diagnosed(session, alert, diagnosis)
 
 
 async def poll_once():
@@ -93,5 +95,5 @@ async def run_forever():
         try:
             await poll_once()
         except Exception as e:
-            print(f"poll error: {e}")
+            print(f"poll error: {type(e).__name__}: {e}", flush=True)
         await asyncio.sleep(config.POLL_INTERVAL_SECONDS)
