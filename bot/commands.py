@@ -35,6 +35,32 @@ async def _send_log_result(channel, title: str, output: str):
         await channel.send(content=f"{title} — full results attached.", file=file)
 
 
+def _format_containers(output: str) -> str:
+    rows = []
+    for line in output.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) == 3:
+            name, status, image = parts
+            marker = "UP" if status.lower().startswith("up") else "DOWN"
+            rows.append((marker, name, status, image))
+    if not rows:
+        return output or "No containers found."
+    header = "STATE  NAME                         STATUS                 IMAGE"
+    separator = "─" * len(header)
+    lines = [header, separator]
+    lines.extend(f"{state:<6} {name[:28]:<28} {status[:22]:<22} {image[:40]}" for state, name, status, image in rows)
+    return "\n".join(lines)
+
+
+async def _send_container_result(channel, title: str, output: str):
+    formatted = _format_containers(output)
+    if len(formatted) <= 3800:
+        await channel.send(embed=info_embed(title, f"```text\n{formatted}\n```"))
+    else:
+        file = discord.File(io.BytesIO(formatted.encode()), filename="containers.txt")
+        await channel.send(content=f"{title} — full list attached.", file=file)
+
+
 async def handle_natural_message(message: discord.Message) -> bool:
     """Handle ordinary human-language messages in the configured channel."""
     text = message.content.strip()
@@ -48,7 +74,7 @@ async def handle_natural_message(message: discord.Message) -> bool:
         include_stopped = any(word in lower for word in ("down", "stopped", "exited", "not running", "all"))
         output = await (list_all_containers() if include_stopped else list_containers())
         title = "All Docker containers" if include_stopped else "Running Docker containers"
-        await message.channel.send(embed=info_embed(title, f"```\n{output or 'No containers found'}\n```"))
+        await _send_container_result(message.channel, title, output)
         return True
 
     if any(word in lower for word in ("pod", "kubernetes", "k8s")) and any(
@@ -60,11 +86,11 @@ async def handle_natural_message(message: discord.Message) -> bool:
         return True
 
     is_error_log_request = any(word in lower for word in ("error", "errors", "exception", "failed", "failure")) and any(
-        word in lower for word in ("for", "from", "container")
+        word in lower for word in ("for", "from", "of", "on", "in", "container")
     )
     if "log" in lower or is_error_log_request:
         words = text.split()
-        marker = next((i for i, word in enumerate(words) if word.lower() in ("for", "of")), None)
+        marker = next((i for i, word in enumerate(words) if word.lower() in ("for", "from", "of", "on", "in")), None)
         name = words[marker + 1] if marker is not None and marker + 1 < len(words) else (words[-1] if len(words) > 1 else "")
         if name:
             source = "k3s" if any(word in lower for word in ("pod", "kubernetes", "k8s")) else "docker"
@@ -73,7 +99,7 @@ async def handle_natural_message(message: discord.Message) -> bool:
                 await _send_log_result(message.channel, f"Errors in {name} (last 24 hours)", output)
             else:
                 output = await get_pod_logs(name) if source == "k3s" else await get_container_logs(name)
-                await _send_log_result(message.channel, f"Logs: {name}", output[-3800:])
+                await _send_log_result(message.channel, f"Logs: {name}", output)
             return True
 
     if any(word in lower for word in ("status", "health", "cpu", "memory", "ram", "disk")) and not any(
@@ -98,7 +124,7 @@ class MonitorCommands(commands.Cog):
     @commands.hybrid_command(name="containers", aliases=["docker"])
     async def containers(self, ctx: commands.Context):
         output = await list_containers()
-        await ctx.send(embed=info_embed("Containers", f"```\n{output}\n```"))
+        await _send_container_result(ctx.channel, "Running Docker containers", output)
 
     @commands.hybrid_command(name="pods", aliases=["k8s"])
     async def pods(self, ctx: commands.Context):
@@ -112,7 +138,7 @@ class MonitorCommands(commands.Cog):
             output = await get_pod_logs(name)
         else:
             output = await get_container_logs(name)
-        await ctx.send(embed=info_embed(f"Logs: {name}", f"```\n{output[-1800:]}\n```"))
+        await _send_log_result(ctx.channel, f"Logs: {name}", output)
 
     @commands.hybrid_command(name="ask")
     async def ask_cmd(self, ctx: commands.Context, *, question: str):
