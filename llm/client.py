@@ -104,13 +104,22 @@ async def _call_nvidia(messages: list[dict], model: str, max_tokens: int = 400, 
             return data["choices"][0]["message"]["content"].strip()
 
 async def diagnose(alert_text: str, logs: str) -> str:
-    messages = [...]
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": build_user_prompt(alert_text, logs)},
+    ]
     return await _call_nvidia(messages, model=config.NVIDIA_MODEL_DIAGNOSIS, max_tokens=300)
 
 async def diagnose_batch(breaches: list[dict], logs_by_target: dict[str, str]) -> str:
-    messages = [...]
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": build_batch_prompt(breaches, logs_by_target)},
+    ]
     return await _call_nvidia(messages, model=config.NVIDIA_MODEL_DIAGNOSIS, max_tokens=300 + 150 * len(breaches))
 
 async def ask(question: str, context: str) -> str:
-    messages = [...]
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"QUESTION: {question}\n\nCONTEXT:\n{context}"},
+    ]
     return await _call_nvidia(messages, model=config.NVIDIA_MODEL_TOOLCALL, max_tokens=400, temperature=0.3)
