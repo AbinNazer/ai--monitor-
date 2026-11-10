@@ -2,6 +2,11 @@ import asyncio
 import json
 import re
 
+ERROR_PATTERNS = re.compile(
+    r"(error|exception|traceback|fatal|panic|failed|refused|timeout|crash)",
+    re.IGNORECASE,
+)
+
 
 async def get_container_logs(name: str, tail: int = 50) -> str:
     proc = await asyncio.create_subprocess_exec(
@@ -10,8 +15,24 @@ async def get_container_logs(name: str, tail: int = 50) -> str:
         stderr=asyncio.subprocess.PIPE,
     )
     stdout, stderr = await proc.communicate()
-    output = stdout.decode() + stderr.decode()
+    output = stdout.decode(errors="replace") + stderr.decode(errors="replace")
     return output[-4000:]  # cap size for LLM context
+
+
+def summarize_logs(raw_logs: str, name: str, recent_count: int = 5) -> str:
+    lines = [line.strip() for line in raw_logs.splitlines() if line.strip()]
+    if not lines:
+        return f"{name}: no log lines returned."
+    error_lines = [line for line in lines if ERROR_PATTERNS.search(line)]
+    parts = [f"{name}: fetched {len(lines)} log lines."]
+    if error_lines:
+        parts.append(f"\n**{len(error_lines)} error pattern(s) detected:**")
+        parts.extend(f"- {line[:200]}" for line in error_lines[-5:])
+    else:
+        parts.append("No error patterns detected.")
+    parts.append("\n**Recent lines:**")
+    parts.extend(f"- {line[:200]}" for line in lines[-recent_count:])
+    return "\n".join(parts)
 
 
 async def get_container_error_logs(name: str, since: str = "24h") -> str:

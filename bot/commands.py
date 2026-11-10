@@ -6,7 +6,7 @@ from discord.ext import commands
 
 from collectors.prometheus_client import PrometheusClient
 from collectors.k3s_client import get_pod_ports, get_pods
-from logs_fetch.docker_logs import get_container_error_logs, get_container_logs, get_container_ports, list_all_containers, list_containers
+from logs_fetch.docker_logs import get_container_error_logs, get_container_logs, get_container_ports, list_all_containers, list_containers, summarize_logs
 from logs_fetch.k3s_logs import get_pod_logs
 from llm.client import ask
 from bot.formatter import info_embed
@@ -39,6 +39,10 @@ async def _send_log_result(channel, title: str, output: str):
         await channel.send(embed=embed, file=file)
     else:
         await channel.send(embed=embed)
+
+
+async def _send_log_summary(channel, title: str, name: str, output: str):
+    await channel.send(embed=info_embed(title, summarize_logs(output, name)))
 
 
 def _format_containers(output: str, down_only: bool = False) -> list[str]:
@@ -107,9 +111,13 @@ async def handle_natural_message(message: discord.Message) -> bool:
         name = words[marker + 1] if marker is not None and marker + 1 < len(words) else (words[-1] if len(words) > 1 else "")
         if name:
             source = "k3s" if any(word in lower for word in ("pod", "kubernetes", "k8s")) else "docker"
+            full_requested = any(word in lower for word in ("full", "everything", "all lines", "complete"))
             if source == "docker" and any(word in lower for word in ("error", "errors", "failed", "failure", "exception")):
                 output = await get_container_error_logs(name)
-                await _send_log_result(message.channel, f"Errors in {name} (last 24 hours)", output)
+                if full_requested:
+                    await _send_log_result(message.channel, f"Errors in {name} (last 24 hours)", output)
+                else:
+                    await _send_log_summary(message.channel, f"Errors in {name} (last 24 hours)", name, output)
             else:
                 if source == "k3s":
                     namespace = config.K3S_NAMESPACE if config.K3S_NAMESPACE not in ("all", "*") else "default"
@@ -121,7 +129,10 @@ async def handle_natural_message(message: discord.Message) -> bool:
                     output = await get_pod_logs(name, namespace=namespace)
                 else:
                     output = await get_container_logs(name)
-                await _send_log_result(message.channel, f"Logs: {name}", output)
+                if full_requested:
+                    await _send_log_result(message.channel, f"Logs: {name} (full)", output)
+                else:
+                    await _send_log_summary(message.channel, f"Logs: {name}", name, output)
             return True
 
     if any(word in lower for word in ("port", "ports")):
@@ -170,12 +181,15 @@ class MonitorCommands(commands.Cog):
         await ctx.send(embed=info_embed("Pods", "\n".join(lines) or "No pods found"))
 
     @commands.hybrid_command(name="logs")
-    async def logs(self, ctx: commands.Context, name: str, source: str = "docker"):
+    async def logs(self, ctx: commands.Context, name: str, mode: str = "summary", source: str = "docker"):
         if source == "k3s":
             output = await get_pod_logs(name)
         else:
             output = await get_container_logs(name)
-        await _send_log_result(ctx.channel, f"Logs: {name}", output)
+        if mode.lower() == "full":
+            await _send_log_result(ctx.channel, f"Logs: {name} (full)", output)
+        else:
+            await _send_log_summary(ctx.channel, f"Logs: {name}", name, output)
 
     @commands.hybrid_command(name="ask")
     async def ask_cmd(self, ctx: commands.Context, *, question: str):
