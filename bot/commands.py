@@ -111,12 +111,13 @@ async def handle_natural_message(message: discord.Message) -> bool:
         name = words[marker + 1] if marker is not None and marker + 1 < len(words) else (words[-1] if len(words) > 1 else "")
         if name:
             source = "k3s" if any(word in lower for word in ("pod", "kubernetes", "k8s")) else "docker"
-            full_requested = any(word in lower for word in ("full", "everything", "all lines", "complete"))
+            full_requested = any(word in lower for word in ("full", "everything", "all lines", "complete", "expand", "dump"))
             if source == "docker" and any(word in lower for word in ("error", "errors", "failed", "failure", "exception")):
-                output = await get_container_error_logs(name)
                 if full_requested:
+                    output = await get_container_error_logs(name)
                     await _send_log_result(message.channel, f"Errors in {name} (last 24 hours)", output)
                 else:
+                    output = await get_container_logs(name, tail=200)
                     await _send_log_summary(message.channel, f"Errors in {name} (last 24 hours)", name, output)
             else:
                 if source == "k3s":

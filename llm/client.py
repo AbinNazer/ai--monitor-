@@ -51,7 +51,8 @@ async def _call_nvidia(messages: list[dict], max_tokens: int = 400, temperature:
             )
             r.raise_for_status()
             data = r.json()
-            return data["choices"][0]["message"]["content"].strip()
+            content = data["choices"][0]["message"].get("content") or ""
+            return content.strip() or "AI diagnosis was unavailable; review the detected logs and metrics."
 
 
 async def diagnose(alert_text: str, logs: str) -> str:
@@ -101,7 +102,8 @@ async def _call_nvidia(messages: list[dict], model: str, max_tokens: int = 400, 
             )
             r.raise_for_status()
             data = r.json()
-            return data["choices"][0]["message"]["content"].strip()
+            content = data["choices"][0]["message"].get("content") or ""
+            return content.strip() or "AI diagnosis was unavailable; review the detected logs and metrics."
 
 
 async def _call_groq(messages: list[dict], max_tokens: int = 400, temperature: float = 0.2) -> str:

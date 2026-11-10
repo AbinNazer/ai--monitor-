@@ -47,7 +47,7 @@ async def get_container_error_logs(name: str, since: str = "24h") -> str:
     lines = stdout.decode(errors="replace").splitlines()
     pattern = re.compile(r"error|err\b|exception|traceback|fatal|critical|failed|failure", re.IGNORECASE)
     matches = [line for line in lines if pattern.search(line)]
-    return "\n".join(matches) or "No error lines found in the last 24 hours."
+    return "\n".join(matches)
 
 
 async def list_containers() -> str:
