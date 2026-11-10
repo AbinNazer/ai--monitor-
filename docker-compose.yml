@@ -35,3 +35,15 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     restart: unless-stopped
+
+  ai-monitor:
+    build: .
+    container_name: ai-monitor
+    env_file: .env
+    network_mode: "host"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
