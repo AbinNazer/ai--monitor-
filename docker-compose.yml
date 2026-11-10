@@ -1,4 +1,3 @@
-version: "3.8"
 services:
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.49.1
@@ -23,8 +22,11 @@ services:
   kube-state-metrics:
     image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.13.0
     container_name: kube-state-metrics
-    ports:
-      - "8080:8080"
+    volumes:
+      - /etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro
+    command:
+      - --kubeconfig=/root/.kube/config
+    network_mode: "host"
     restart: unless-stopped
 
   prometheus:
@@ -38,12 +40,3 @@ services:
 
   ai-monitor:
     build: .
-    container_name: ai-monitor
-    env_file: .env
-    network_mode: "host"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro
-    depends_on:
-      - prometheus
-    restart: unless-stopped
