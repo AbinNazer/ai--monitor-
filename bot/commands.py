@@ -1,9 +1,10 @@
 import discord
+import io
 from discord.ext import commands
 
 from collectors.prometheus_client import PrometheusClient
 from collectors.k3s_client import get_pods
-from logs_fetch.docker_logs import get_container_logs, list_containers
+from logs_fetch.docker_logs import get_container_error_logs, get_container_logs, list_all_containers, list_containers
 from logs_fetch.k3s_logs import get_pod_logs
 from llm.client import ask
 from bot.formatter import info_embed
@@ -26,6 +27,14 @@ async def _ask_question(question: str):
     return await ask(question, context)
 
 
+async def _send_log_result(channel, title: str, output: str):
+    if len(output) <= 3800:
+        await channel.send(embed=info_embed(title, f"```\n{output}\n```"))
+    else:
+        file = discord.File(io.BytesIO(output.encode()), filename="container-errors.txt")
+        await channel.send(content=f"{title} — full results attached.", file=file)
+
+
 async def handle_natural_message(message: discord.Message) -> bool:
     """Handle ordinary human-language messages in the configured channel."""
     text = message.content.strip()
@@ -34,10 +43,12 @@ async def handle_natural_message(message: discord.Message) -> bool:
         return False
 
     if any(word in lower for word in ("container", "docker")) and any(
-        word in lower for word in ("show", "list", "running", "which", "status")
+        word in lower for word in ("show", "list", "running", "which", "status", "check", "are", "is")
     ):
-        output = await list_containers()
-        await message.channel.send(embed=info_embed("Containers", f"```\n{output}\n```"))
+        include_stopped = any(word in lower for word in ("down", "stopped", "exited", "not running", "all"))
+        output = await (list_all_containers() if include_stopped else list_containers())
+        title = "All Docker containers" if include_stopped else "Running Docker containers"
+        await message.channel.send(embed=info_embed(title, f"```\n{output or 'No containers found'}\n```"))
         return True
 
     if any(word in lower for word in ("pod", "kubernetes", "k8s")) and any(
@@ -54,8 +65,12 @@ async def handle_natural_message(message: discord.Message) -> bool:
         name = words[marker + 1] if marker is not None and marker + 1 < len(words) else (words[-1] if len(words) > 1 else "")
         if name:
             source = "k3s" if any(word in lower for word in ("pod", "kubernetes", "k8s")) else "docker"
-            output = await get_pod_logs(name) if source == "k3s" else await get_container_logs(name)
-            await message.channel.send(embed=info_embed(f"Logs: {name}", f"```\n{output[-1800:]}\n```"))
+            if source == "docker" and any(word in lower for word in ("error", "errors", "failed", "failure", "exception")):
+                output = await get_container_error_logs(name)
+                await _send_log_result(message.channel, f"Errors in {name} (last 24 hours)", output)
+            else:
+                output = await get_pod_logs(name) if source == "k3s" else await get_container_logs(name)
+                await _send_log_result(message.channel, f"Logs: {name}", output[-3800:])
             return True
 
     if any(word in lower for word in ("status", "health", "cpu", "memory", "ram", "disk")) and not any(

@@ -46,8 +46,11 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      KUBECONFIG: /root/.kube/config
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro
     restart: unless-stopped
