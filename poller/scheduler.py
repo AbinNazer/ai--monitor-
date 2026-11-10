@@ -8,7 +8,7 @@ from logs_fetch.k3s_logs import get_pod_logs
 from llm.client import diagnose, diagnose_batch
 from db.session import SessionLocal
 from db import crud
-from bot.formatter import alert_embed, batch_alert_embed, info_embed
+from bot.formatter import alert_embed, batch_alert_embed
 from bot.client import post_embed
 
 prom = PrometheusClient()
@@ -54,31 +54,19 @@ async def _dispatch(ready: list[dict]):
     async with SessionLocal() as session:
         if len(ready) == 1:
             b = ready[0]
+            alert_text = f"{b['alert_type']} on {b['target']}: value={b['value']}"
+            diagnosis = await diagnose(alert_text, logs_by_target[b["target"]])
             alert = await crud.get_open_alert(session, b["target"], b["alert_type"])
-            fallback = "Alert detected. AI diagnosis is pending."
-            delivered = await post_embed(alert_embed(b["target"], b["alert_type"], b["value"], fallback))
+            delivered = await post_embed(alert_embed(b["target"], b["alert_type"], b["value"], diagnosis))
             if delivered:
-                await crud.mark_diagnosed(session, alert, fallback)
-                try:
-                    alert_text = f"{b['alert_type']} on {b['target']}: value={b['value']}"
-                    diagnosis = await diagnose(alert_text, logs_by_target[b["target"]])
-                    await post_embed(info_embed(f"AI diagnosis: {b['target']}", diagnosis))
-                    await crud.mark_diagnosed(session, alert, diagnosis)
-                except Exception as error:
-                    print(f"AI diagnosis failed after alert delivery: {type(error).__name__}: {error}", flush=True)
+                await crud.mark_diagnosed(session, alert, diagnosis)
         else:
-            fallback = "Alerts detected. AI diagnosis is pending."
-            delivered = await post_embed(batch_alert_embed(ready, fallback))
+            diagnosis = await diagnose_batch(ready, logs_by_target)
+            delivered = await post_embed(batch_alert_embed(ready, diagnosis))
             for b in ready:
                 alert = await crud.get_open_alert(session, b["target"], b["alert_type"])
                 if delivered:
-                    await crud.mark_diagnosed(session, alert, fallback)
-            if delivered:
-                try:
-                    diagnosis = await diagnose_batch(ready, logs_by_target)
-                    await post_embed(info_embed("AI alert diagnosis", diagnosis))
-                except Exception as error:
-                    print(f"AI batch diagnosis failed after alert delivery: {type(error).__name__}: {error}", flush=True)
+                    await crud.mark_diagnosed(session, alert, diagnosis)
 
 
 async def poll_once():
