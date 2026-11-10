@@ -26,6 +26,7 @@ services:
       - /etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro
     command:
       - --kubeconfig=/root/.kube/config
+    user: "0"
     network_mode: "host"
     restart: unless-stopped
 
@@ -34,9 +35,16 @@ services:
     container_name: prometheus
     ports:
       - "9091:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     restart: unless-stopped
 
   ai-monitor:
     build: .
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
