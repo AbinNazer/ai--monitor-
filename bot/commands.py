@@ -6,6 +6,7 @@ from discord.ext import commands
 
 from collectors.prometheus_client import PrometheusClient
 from collectors.k3s_client import get_pod_ports, get_pods
+from collectors.docker_control import container_exists, control_container
 from logs_fetch.docker_logs import get_container_error_logs, get_container_logs, get_container_ports, list_all_containers, list_containers, summarize_logs
 from logs_fetch.k3s_logs import get_pod_logs
 from llm.client import ask
@@ -83,6 +84,22 @@ async def handle_natural_message(message: discord.Message) -> bool:
     lower = text.lower()
     if not text or lower.startswith(("!", "/")):
         return False
+
+    control_match = re.search(
+        r"\b(restart|stop|start)\b\s+(?:the\s+)?(?:container\s+)?([\w.-]+)",
+        text,
+        re.IGNORECASE,
+    )
+    if control_match:
+        action, name = control_match.groups()
+        action = action.lower()
+        if not await container_exists(name):
+            await message.channel.send(embed=info_embed("Container not found", f"No container named `{name}` exists."))
+            return True
+        success, output = await control_container(name, action)
+        status = "✅ Completed" if success else "❌ Failed"
+        await message.channel.send(embed=info_embed(f"{status}: {action} `{name}`", output))
+        return True
 
     if any(word in lower for word in ("container", "docker")) and any(
         word in lower for word in ("show", "list", "running", "which", "status", "check", "are", "is")
