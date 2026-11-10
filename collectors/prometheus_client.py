@@ -47,9 +47,9 @@ class PrometheusClient:
         return float(result[0]["value"][1]) if result else 0.0
 
     async def node_disk_percent(self, mountpoint: str = "/") -> float:
-        q = f'(1 - (node_filesystem_avail_bytes{{mountpoint="{mountpoint}"}} / node_filesystem_size_bytes{{mountpoint="{mountpoint}"}})) * 100'
+        q = f'max((1 - (node_filesystem_avail_bytes{{mountpoint="{mountpoint}",fstype!~"tmpfs|overlay"}} / node_filesystem_size_bytes{{mountpoint="{mountpoint}",fstype!~"tmpfs|overlay"}})) * 100)'
         result = await self.instant_query(q)
-        return float(result[0]["value"][1]) if result else 0.0
+        return max(0.0, min(100.0, float(result[0]["value"][1]))) if result else 0.0
 
     async def pod_restarts(self) -> dict[str, float]:
         # from kube-state-metrics

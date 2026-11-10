@@ -23,3 +23,22 @@ class Alert(Base):
     raw_metrics: Mapped[dict] = mapped_column(JSON, default=dict)
     diagnosis: Mapped[str | None] = mapped_column(String, nullable=True)
     notified: Mapped[bool] = mapped_column(default=False)
+
+
+class ContainerState(Base):
+    __tablename__ = "container_states"
+    name: Mapped[str] = mapped_column(String(255), primary_key=True)
+    last_seen_running: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    missing_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_status: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class PodState(Base):
+    __tablename__ = "pod_states"
+    name: Mapped[str] = mapped_column(String(255), primary_key=True)
+    namespace: Mapped[str] = mapped_column(String(255))
+    bad_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_phase: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_waiting_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    last_restarts: Mapped[int] = mapped_column(Integer, default=0)

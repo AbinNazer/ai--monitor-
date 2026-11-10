@@ -1,13 +1,15 @@
 import asyncio
+from datetime import datetime, timezone
 import config
 from collectors.prometheus_client import PrometheusClient
 from collectors.k3s_client import get_pods
-from rules.evaluator import evaluate_container_states, evaluate_containers, evaluate_node, evaluate_pods
+from rules.evaluator import evaluate_container_states, evaluate_containers, evaluate_node, evaluate_pod_states
 from logs_fetch.docker_logs import get_container_logs, get_container_states
 from logs_fetch.k3s_logs import get_pod_logs
 from llm.client import diagnose, diagnose_batch
 from db.session import SessionLocal
 from db import crud
+from rules import thresholds
 from bot.formatter import alert_embed, batch_alert_embed
 from bot.client import post_embed
 
@@ -77,13 +79,38 @@ async def poll_once():
     node_disk = await prom.node_disk_percent()
     pods = await get_pods(namespace=config.K3S_NAMESPACE)
     containers = await get_container_states()
-    await _resolve_recovered_containers(containers)
+    now = datetime.now(timezone.utc)
+    async with SessionLocal() as session:
+        container_states = await crud.get_container_states(session)
+        current_names = {item["name"] for item in containers}
+        for item in containers:
+            state = await crud.touch_container_state(
+                session, item["name"], item["state"], item["exit_code"], now
+            )
+            if item["running"]:
+                await crud.reset_alert(session, item["name"], "container_down")
+        for name in set(container_states) - current_names:
+            await crud.mark_container_missing(session, name, now)
+
+        pod_states = await crud.get_pod_states(session)
+        for pod in pods:
+            key = f"{pod['namespace']}/{pod['name']}"
+            bad = pod["waiting_reason"] in thresholds.POD_CRASHLOOP_REASONS
+            bad = bad or pod["restarts"] >= thresholds.POD_RESTART_THRESHOLD
+            await crud.touch_pod_state(
+                session, key, pod["namespace"], pod["phase"],
+                pod["waiting_reason"], pod["restarts"], bad, now,
+            )
+            if not bad:
+                await crud.reset_alert(session, key, "pod_crashloop")
+                await crud.reset_alert(session, key, "pod_restart_high")
+        await session.commit()
 
     breaches = (
         evaluate_containers(cpu, mem)
-        + evaluate_container_states(containers)
+        + evaluate_container_states(containers, container_states, now, config.DEPLOY_GRACE_SECONDS)
         + evaluate_node(node_cpu, node_mem, node_disk)
-        + evaluate_pods(pods)
+        + evaluate_pod_states(pods, pod_states, now, config.DEPLOY_GRACE_SECONDS)
     )
 
     ready = await _ready_breaches(breaches)

@@ -49,10 +49,14 @@ async def get_container_states() -> list[dict]:
     for line in stdout.decode(errors="replace").splitlines():
         item = json.loads(line)
         status = item.get("Status", "")
+        state = item.get("State", "").lower()
+        exit_code = item.get("ExitCode")
         states.append({"name": item.get("Names", "unknown"), "status": status,
                        "image": item.get("Image", "unknown"),
                        "ports": item.get("Ports", ""),
-                       "running": status.lower().startswith("up")})
+                       "state": state,
+                       "exit_code": int(exit_code or 0),
+                       "running": state == "running"})
     return states
 
 
