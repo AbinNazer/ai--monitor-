@@ -17,6 +17,11 @@ services:
     container_name: node-exporter
     ports:
       - "4003:9100"
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    command:
+      - "--path.rootfs=/host"
     restart: unless-stopped
 
   kube-state-metrics:
