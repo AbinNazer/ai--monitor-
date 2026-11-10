@@ -51,8 +51,17 @@ async def get_container_states() -> list[dict]:
         status = item.get("Status", "")
         states.append({"name": item.get("Names", "unknown"), "status": status,
                        "image": item.get("Image", "unknown"),
+                       "ports": item.get("Ports", ""),
                        "running": status.lower().startswith("up")})
     return states
+
+
+async def get_container_ports(name: str) -> str:
+    states = await get_container_states()
+    container = next((item for item in states if item["name"] == name), None)
+    if not container:
+        return f"No container named `{name}` was found."
+    return container["ports"] or f"`{name}` has no published ports."
 
 
 async def _list_containers(all_containers: bool) -> str:

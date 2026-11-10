@@ -1,10 +1,12 @@
 import discord
 import io
+import re
+import config
 from discord.ext import commands
 
 from collectors.prometheus_client import PrometheusClient
-from collectors.k3s_client import get_pods
-from logs_fetch.docker_logs import get_container_error_logs, get_container_logs, list_all_containers, list_containers
+from collectors.k3s_client import get_pod_ports, get_pods
+from logs_fetch.docker_logs import get_container_error_logs, get_container_logs, get_container_ports, list_all_containers, list_containers
 from logs_fetch.k3s_logs import get_pod_logs
 from llm.client import ask
 from bot.formatter import info_embed
@@ -22,7 +24,7 @@ async def _status_embed():
 async def _ask_question(question: str):
     cpu = await prom.node_cpu_percent()
     mem = await prom.node_mem_percent()
-    pods = await get_pods()
+    pods = await get_pods(namespace=config.K3S_NAMESPACE)
     context = f"Host CPU: {cpu:.1f}%, Mem: {mem:.1f}%\nPods: {pods}"
     return await ask(question, context)
 
@@ -92,7 +94,7 @@ async def handle_natural_message(message: discord.Message) -> bool:
         word in lower for word in ("show", "list", "running", "health", "status")
     ):
         pods = await get_pods()
-        lines = [f"{p['name']} — {p['phase']} — restarts: {p['restarts']}" for p in pods]
+        lines = [f"`{p['namespace']}/{p['name']}` — {p['phase']} — restarts: {p['restarts']}" for p in pods]
         await message.channel.send(embed=info_embed("Pods", "\n".join(lines) or "No pods found"))
         return True
 
@@ -109,9 +111,33 @@ async def handle_natural_message(message: discord.Message) -> bool:
                 output = await get_container_error_logs(name)
                 await _send_log_result(message.channel, f"Errors in {name} (last 24 hours)", output)
             else:
-                output = await get_pod_logs(name) if source == "k3s" else await get_container_logs(name)
+                if source == "k3s":
+                    namespace = config.K3S_NAMESPACE if config.K3S_NAMESPACE not in ("all", "*") else "default"
+                    if "/" in name:
+                        namespace, name = name.split("/", 1)
+                    namespace_match = re.search(r"\b(?:in|namespace)\s+([\w.-]+)", lower)
+                    if namespace_match:
+                        namespace = namespace_match.group(1)
+                    output = await get_pod_logs(name, namespace=namespace)
+                else:
+                    output = await get_container_logs(name)
                 await _send_log_result(message.channel, f"Logs: {name}", output)
             return True
+
+    if any(word in lower for word in ("port", "ports")):
+        words = text.rstrip("?.!").split()
+        name = words[-1].strip("`.,") if len(words) > 1 else ""
+        is_pod = any(word in lower for word in ("pod", "kubernetes", "k8s"))
+        if is_pod:
+            namespace = config.K3S_NAMESPACE if config.K3S_NAMESPACE not in ("all", "*") else "default"
+            if "/" in name:
+                namespace, name = name.split("/", 1)
+            output = await get_pod_ports(name, namespace=namespace)
+            await message.channel.send(embed=info_embed(f"Ports: {namespace}/{name}", f"```text\n{output}\n```"))
+        else:
+            output = await get_container_ports(name)
+            await message.channel.send(embed=info_embed(f"Ports: {name}", f"```text\n{output}\n```"))
+        return True
 
     if any(word in lower for word in ("status", "health", "cpu", "memory", "ram", "disk")) and not any(
         word in lower for word in ("why", "explain", "how", "what should")
@@ -139,7 +165,7 @@ class MonitorCommands(commands.Cog):
 
     @commands.hybrid_command(name="pods", aliases=["k8s"])
     async def pods(self, ctx: commands.Context):
-        pods = await get_pods()
+        pods = await get_pods(namespace=config.K3S_NAMESPACE)
         lines = [f"{p['name']} — {p['phase']} — restarts: {p['restarts']}" for p in pods]
         await ctx.send(embed=info_embed("Pods", "\n".join(lines) or "No pods found"))
 

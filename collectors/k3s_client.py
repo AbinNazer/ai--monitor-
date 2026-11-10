@@ -14,8 +14,9 @@ async def _run_kubectl(*args: str) -> str:
     return stdout.decode()
 
 
-async def get_pods(namespace: str = "default") -> list[dict]:
-    raw = await _run_kubectl("get", "pods", "-n", namespace, "-o", "json")
+async def get_pods(namespace: str = "all") -> list[dict]:
+    scope = ["--all-namespaces"] if namespace in ("all", "*") else ["-n", namespace]
+    raw = await _run_kubectl("get", "pods", *scope, "-o", "json")
     data = json.loads(raw)
     pods = []
     for item in data.get("items", []):
@@ -30,6 +31,7 @@ async def get_pods(namespace: str = "default") -> list[dict]:
                 waiting_reason = waiting.get("reason")
         pods.append({
             "name": name,
+            "namespace": item["metadata"].get("namespace", "default"),
             "phase": phase,
             "restarts": restarts,
             "waiting_reason": waiting_reason,
@@ -39,6 +41,19 @@ async def get_pods(namespace: str = "default") -> list[dict]:
 
 async def describe_pod(name: str, namespace: str = "default") -> str:
     return await _run_kubectl("describe", "pod", name, "-n", namespace)
+
+
+async def get_pod_ports(name: str, namespace: str = "default") -> str:
+    raw = await _run_kubectl("get", "pod", name, "-n", namespace, "-o", "json")
+    data = json.loads(raw)
+    ports = []
+    for container in data.get("spec", {}).get("containers", []):
+        for port in container.get("ports", []):
+            value = f"{container.get('name', 'container')}: {port.get('containerPort')}"
+            if port.get("protocol"):
+                value += f"/{port['protocol']}"
+            ports.append(value)
+    return "\n".join(ports) or f"`{namespace}/{name}` has no declared container ports."
 
 
 async def list_nodes() -> str:

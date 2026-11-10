@@ -103,11 +103,32 @@ async def _call_nvidia(messages: list[dict], model: str, max_tokens: int = 400, 
             data = r.json()
             return data["choices"][0]["message"]["content"].strip()
 
+
+async def _call_groq(messages: list[dict], max_tokens: int = 400, temperature: float = 0.2) -> str:
+    await _limiter.acquire()
+    async with _concurrency:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                f"{config.GROQ_BASE_URL}/chat/completions",
+                headers={"Authorization": f"Bearer {config.GROQ_API_KEY}"},
+                json={
+                    "model": config.GROQ_MODEL,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+            return data["choices"][0]["message"]["content"].strip()
+
 async def diagnose(alert_text: str, logs: str) -> str:
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": build_user_prompt(alert_text, logs)},
     ]
+    if config.GROQ_API_KEY:
+        return await _call_groq(messages, max_tokens=300)
     return await _call_nvidia(messages, model=config.NVIDIA_MODEL_DIAGNOSIS, max_tokens=300)
 
 async def diagnose_batch(breaches: list[dict], logs_by_target: dict[str, str]) -> str:
@@ -115,6 +136,8 @@ async def diagnose_batch(breaches: list[dict], logs_by_target: dict[str, str]) -
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": build_batch_prompt(breaches, logs_by_target)},
     ]
+    if config.GROQ_API_KEY:
+        return await _call_groq(messages, max_tokens=300 + 150 * len(breaches))
     return await _call_nvidia(messages, model=config.NVIDIA_MODEL_DIAGNOSIS, max_tokens=300 + 150 * len(breaches))
 
 async def ask(question: str, context: str) -> str:
