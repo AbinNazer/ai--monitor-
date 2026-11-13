@@ -82,11 +82,41 @@ async def get_container_states() -> list[dict]:
 
 
 async def get_container_ports(name: str) -> str:
-    states = await get_container_states()
-    container = next((item for item in states if item["name"] == name), None)
-    if not container:
-        return f"No container named `{name}` was found."
-    return container["ports"] or f"`{name}` has no published ports."
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "inspect", name,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        return stderr.decode(errors="replace").strip() or f"No container named `{name}` was found."
+
+    data = json.loads(stdout.decode(errors="replace"))[0]
+    config = data.get("Config", {})
+    host_config = data.get("HostConfig", {})
+    network = data.get("NetworkSettings", {})
+    lines = [f"Container: {name}", f"Network mode: {host_config.get('NetworkMode', 'unknown')}"]
+
+    published = []
+    for container_port, bindings in (network.get("Ports") or {}).items():
+        if bindings:
+            for binding in bindings:
+                published.append(f"{binding.get('HostIp', '0.0.0.0')}:{binding.get('HostPort')} -> {container_port}")
+    if published:
+        lines.append("Published ports:\n" + "\n".join(f"- {item}" for item in published))
+    else:
+        lines.append("Published ports: none")
+
+    exposed = sorted(config.get("ExposedPorts", {}).keys())
+    lines.append("Declared internal ports: " + (", ".join(exposed) if exposed else "none"))
+    networks = network.get("Networks", {})
+    for network_name, details in networks.items():
+        ip = details.get("IPAddress") or "no IP"
+        aliases = ", ".join(details.get("Aliases") or [])
+        lines.append(f"Network `{network_name}`: {ip}" + (f" (aliases: {aliases})" if aliases else ""))
+    if host_config.get("NetworkMode") == "host":
+        lines.append("Host networking: the service listens directly on VPS interfaces; Docker has no separate port mapping.")
+    return "\n".join(lines)
 
 
 async def _list_containers(all_containers: bool) -> str:

@@ -6,6 +6,7 @@ from discord.ext import commands
 
 from collectors.prometheus_client import PrometheusClient
 from collectors.k3s_client import get_pod_ports, get_pods
+from collectors.processes import get_top_processes, get_top_users
 from collectors.docker_control import container_exists, control_container
 from logs_fetch.docker_logs import get_container_error_logs, get_container_logs, get_container_ports, list_all_containers, list_containers, summarize_logs
 from logs_fetch.k3s_logs import get_pod_logs
@@ -84,6 +85,11 @@ async def handle_natural_message(message: discord.Message) -> bool:
     lower = text.lower()
     if not text or lower.startswith(("!", "/")):
         return False
+
+    if "top" in lower and any(word in lower for word in ("process", "user", "cpu", "memory", "ram")):
+        output = await get_top_users() if "user" in lower else await get_top_processes()
+        await message.channel.send(embed=info_embed("VPS process usage", output))
+        return True
 
     control_match = re.search(
         r"\b(restart|stop|start)\b\s+(?:the\s+)?(?:container\s+)?([\w.-]+)",
@@ -186,6 +192,11 @@ class MonitorCommands(commands.Cog):
     @commands.hybrid_command(name="status", aliases=["health"])
     async def status(self, ctx: commands.Context):
         await ctx.send(embed=await _status_embed())
+
+    @commands.hybrid_command(name="top")
+    async def top(self, ctx: commands.Context, view: str = "processes"):
+        output = await get_top_users() if view.lower() in ("users", "user") else await get_top_processes()
+        await ctx.send(embed=info_embed("VPS process usage", output))
 
     @commands.hybrid_command(name="containers", aliases=["docker"])
     async def containers(self, ctx: commands.Context):

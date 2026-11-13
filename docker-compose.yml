@@ -49,6 +49,7 @@ services:
   ai-monitor:
     build: .
     network_mode: host
+    pid: host
     env_file:
       - path: .env
         required: false
