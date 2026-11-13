@@ -6,7 +6,7 @@ from discord.ext import commands
 
 from collectors.prometheus_client import PrometheusClient
 from collectors.k3s_client import get_pod_ports, get_pods
-from collectors.processes import get_top_processes, get_top_users
+from collectors.processes import get_elevated_processes, get_top_processes, get_top_users
 from collectors.docker_stats import get_container_stats
 from collectors.docker_control import container_exists, control_container
 from logs_fetch.docker_logs import get_container_error_logs, get_container_logs, get_container_ports, get_container_states, list_all_containers, list_containers, summarize_logs
@@ -27,9 +27,23 @@ async def _status_embed():
 async def _ask_question(question: str):
     cpu = await prom.node_cpu_percent()
     mem = await prom.node_mem_percent()
+    disk = await prom.node_disk_percent()
+    stats = await get_container_stats()
+    elevated_containers = [s for s in stats if s["cpu_percent"] > 5 or s["mem_percent"] > 5]
+    elevated_processes = await get_elevated_processes(limit=20, threshold=5.0)
     pods = await get_pods(namespace=config.K3S_NAMESPACE)
-    context = f"Host CPU: {cpu:.1f}%, Mem: {mem:.1f}%\nPods: {pods}"
-    return await ask(question, context)
+    context = (
+        f"Alert thresholds: CPU/Memory >= {config.CPU_PERCENT_THRESHOLD}%, Disk >= {config.DISK_PERCENT_THRESHOLD}%.\n"
+        f"Host CPU: {cpu:.1f}%, Memory: {mem:.1f}%, Disk: {disk:.1f}%\n"
+        f"Elevated containers (>5% CPU or memory): {elevated_containers or 'none'}\n"
+        f"Elevated processes (>5% CPU or memory): {elevated_processes or 'none'}\nPods: {pods}"
+    )
+    return await ask(
+        question + " Give a concise answer first and mention only relevant elevated resources. "
+        "Use only these safe commands when necessary: `docker stats --no-stream`, `kubectl top pods`, "
+        "`docker logs <name>`, or `docker restart <name>`.\n",
+        context,
+    )
 
 
 async def _diagnose_resource_question(question: str):
@@ -39,22 +53,29 @@ async def _diagnose_resource_question(question: str):
     container_stats = await get_container_stats()
     container_cpu = {item["name"]: item["cpu_percent"] for item in container_stats}
     container_mem = {item["name"]: item["mem_percent"] for item in container_stats}
-    top_processes = await get_top_processes(limit=8)
+    elevated_processes = await get_elevated_processes(limit=20, threshold=5.0)
     states = await get_container_states()
     question_lower = question.lower()
     matching = [item for item in states if item["name"].lower() in question_lower]
+    container_scope = bool(matching) or any(word in question_lower for word in ("container", "docker", "containers"))
+    all_scope = any(word in question_lower for word in ("everything", "all", "overall", "whole system"))
     if matching:
         names = {item["name"] for item in matching}
     else:
         names = set(container_cpu) | set(container_mem)
     selected = []
     for name in names:
-        selected.append(f"{name}: CPU={container_cpu.get(name, 0.0):.1f}%, MEM={container_mem.get(name, 0.0):.1f}%")
-    container_context = "\n".join(selected[:20]) or "No container CPU/memory metrics are currently available from Prometheus."
+        cpu_value = container_cpu.get(name, 0.0)
+        mem_value = container_mem.get(name, 0.0)
+        if matching or cpu_value > 5 or mem_value > 5:
+            selected.append(f"{name}: CPU={cpu_value:.1f}%, MEM={mem_value:.1f}%")
+    container_context = "\n".join(selected[:20]) or "none"
     context = (
-        f"Host CPU: {cpu:.1f}%\nHost memory: {mem:.1f}%\nHost disk: {disk:.1f}%\n\n"
-        f"Container metrics:\n{container_context}\n\nTop VPS processes:\n{top_processes}"
+        f"Alert thresholds: CPU/Memory >= {config.CPU_PERCENT_THRESHOLD}%, Disk >= {config.DISK_PERCENT_THRESHOLD}%.\n"
+        f"Container metrics from docker stats (not cAdvisor):\n{container_context}"
     )
+    if not container_scope or all_scope:
+        context += f"\n\nHost CPU: {cpu:.1f}%\nHost memory: {mem:.1f}%\nHost disk: {disk:.1f}%\n\nElevated processes (>5% CPU or memory): {elevated_processes or 'none'}"
     ranking = sorted(
         ((name, container_cpu.get(name, 0.0), container_mem.get(name, 0.0)) for name in names),
         key=lambda item: item[1], reverse=True,
@@ -65,14 +86,22 @@ async def _diagnose_resource_question(question: str):
     )
     if not container_report:
         container_report = "No container CPU/memory series were returned by Prometheus."
-    report = (
-        f"**Host usage**\nCPU: **{cpu:.1f}%** · Memory: **{mem:.1f}%** · Disk: **{disk:.1f}%**\n\n"
-        f"{top_processes}\n\n"
-        f"**Current container usage**\n{container_report}"
-    )
+    report = f"**Current container usage**\n{container_report}"
+    if not container_scope or all_scope:
+        report = (
+            f"**Host usage**\nCPU: **{cpu:.1f}%** · Memory: **{mem:.1f}%** · Disk: **{disk:.1f}%**\n\n"
+            f"**Elevated VPS processes (>5%)**\n{elevated_processes or 'None'}\n\n{report}"
+        )
     try:
         answer = await ask(
-            question + " Give the likely cause, evidence from the metrics, and concrete commands or steps to fix it.",
+            question + (
+                " Give a short, direct diagnosis first (1-3 sentences): is anything actually abnormal, "
+                "and if so what and why. Only list specific processes or containers if they meaningfully "
+                "contribute; do not list near-idle entries. If nothing is wrong, say so in one sentence "
+                "and stop. If action is needed, give the most relevant concrete fix. Use only these safe "
+                "commands when necessary: `docker stats --no-stream`, `kubectl top pods`, "
+                "`docker logs <name>`, or `docker restart <name>`."
+            ),
             context,
         )
     except Exception as error:
@@ -95,6 +124,15 @@ async def _send_log_result(channel, title: str, output: str):
 
 async def _send_log_summary(channel, title: str, name: str, output: str):
     await channel.send(embed=info_embed(title, summarize_logs(output, name)))
+
+
+async def _send_resource_result(channel, content: str):
+    if len(content) <= 3800:
+        await channel.send(embed=info_embed("AI resource diagnosis", content))
+        return
+    preview = content[:3600] + "\n\nFull diagnosis attached."
+    file = discord.File(io.BytesIO(content.encode()), filename="resource-diagnosis.txt")
+    await channel.send(embed=info_embed("AI resource diagnosis", preview), file=file)
 
 
 def _format_containers(output: str, down_only: bool = False) -> list[str]:
@@ -147,7 +185,7 @@ async def handle_natural_message(message: discord.Message) -> bool:
     )
     if resource_question:
         answer = await _diagnose_resource_question(text)
-        await message.channel.send(embed=info_embed("AI resource diagnosis", answer))
+        await _send_resource_result(message.channel, answer)
         return True
 
     if "top" in lower and any(word in lower for word in ("process", "user", "cpu", "memory", "ram")):

@@ -56,6 +56,11 @@ async def get_top_processes(limit: int = 10) -> str:
     return "\n\n".join(lines)
 
 
+async def get_elevated_processes(limit: int = 20, threshold: float = 5.0) -> list[dict]:
+    return [row for row in await _top_rows(limit)
+            if row["cpu"] > threshold or row["mem"] > threshold]
+
+
 async def get_top_users(limit: int = 10) -> str:
     rows = await _top_rows(100)
     totals = defaultdict(lambda: [0.0, 0.0, 0])
