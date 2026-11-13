@@ -1,5 +1,6 @@
 import asyncio
 from collections import defaultdict
+import os
 
 
 async def _top_rows(limit: int = 10) -> list[dict]:
@@ -39,12 +40,16 @@ async def get_top_processes(limit: int = 10) -> str:
     rows = await _top_rows(limit)
     if not rows:
         return "No VPS processes found."
-    lines = ["**Top VPS processes by CPU**"]
-    lines.extend(
-        f"`{row['user']}` · PID `{row['pid']}` · CPU `{row['cpu']:.1f}%` · MEM `{row['mem']:.1f}%`\n"
-        f"`{row['command'][:180]}`"
-        for row in rows
-    )
+    lines = ["**Top VPS processes**", "Ranked by current CPU usage.\n"]
+    for rank, row in enumerate(rows, 1):
+        command = os.path.basename(row["command"].split()[0]) if row["command"] else "unknown"
+        details = row["command"][:140]
+        lines.append(
+            f"**{rank}. {command}**\n"
+            f"User: `{row['user']}` · PID: `{row['pid']}`\n"
+            f"CPU: **{row['cpu']:.1f}%** · Memory: **{row['mem']:.1f}%**\n"
+            f"Command: `{details}`"
+        )
     return "\n\n".join(lines)
 
 
@@ -58,9 +63,10 @@ async def get_top_users(limit: int = 10) -> str:
     ranked = sorted(totals.items(), key=lambda item: item[1][0], reverse=True)[:limit]
     if not ranked:
         return "No VPS users found."
-    lines = ["**Top VPS users by process CPU**"]
+    lines = ["**Top VPS users**", "Ranked by combined process CPU usage.\n"]
     lines.extend(
-        f"`{user}` · CPU `{values[0]:.1f}%` · MEM `{values[1]:.1f}%` · processes `{values[2]}`"
-        for user, values in ranked
+        f"**{index}. `{user}`**\n"
+        f"CPU: **{values[0]:.1f}%** · Memory: **{values[1]:.1f}%** · Processes: `{values[2]}`"
+        for index, (user, values) in enumerate(ranked, 1)
     )
     return "\n".join(lines)
