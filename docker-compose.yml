@@ -1,11 +1,9 @@
 services:
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
     container_name: cadvisor
     ports:
       - "4002:8080"
-    environment:
-      - DOCKER_API_VERSION=1.41
     volumes:
       - /:/rootfs:ro
       - /sys:/sys:ro
