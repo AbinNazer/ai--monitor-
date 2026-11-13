@@ -130,8 +130,8 @@ async def diagnose(alert_text: str, logs: str) -> str:
         {"role": "user", "content": build_user_prompt(alert_text, logs)},
     ]
     if config.GROQ_API_KEY:
-        return await _call_groq(messages, max_tokens=300)
-    return await _call_nvidia(messages, model=config.NVIDIA_MODEL_DIAGNOSIS, max_tokens=300)
+        return await _call_groq(messages, max_tokens=2000)
+    return await _call_nvidia(messages, model=config.NVIDIA_MODEL_DIAGNOSIS, max_tokens=2000)
 
 async def diagnose_batch(breaches: list[dict], logs_by_target: dict[str, str]) -> str:
     messages = [
@@ -139,12 +139,12 @@ async def diagnose_batch(breaches: list[dict], logs_by_target: dict[str, str]) -
         {"role": "user", "content": build_batch_prompt(breaches, logs_by_target)},
     ]
     if config.GROQ_API_KEY:
-        return await _call_groq(messages, max_tokens=300 + 150 * len(breaches))
-    return await _call_nvidia(messages, model=config.NVIDIA_MODEL_DIAGNOSIS, max_tokens=300 + 150 * len(breaches))
+        return await _call_groq(messages, max_tokens=2000 + 150 * len(breaches))
+    return await _call_nvidia(messages, model=config.NVIDIA_MODEL_DIAGNOSIS, max_tokens=2000 + 150 * len(breaches))
 
 async def ask(question: str, context: str) -> str:
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"QUESTION: {question}\n\nCONTEXT:\n{context}"},
     ]
-    return await _call_nvidia(messages, model=config.NVIDIA_MODEL_TOOLCALL, max_tokens=400, temperature=0.3)
+    return await _call_nvidia(messages, model=config.NVIDIA_MODEL_TOOLCALL, max_tokens=2000, temperature=0.3)
