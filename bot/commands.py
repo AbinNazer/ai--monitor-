@@ -48,7 +48,7 @@ async def _diagnose_resource_question(question: str):
     selected = []
     for name in names:
         selected.append(f"{name}: CPU={container_cpu.get(name, 0.0):.1f}%, MEM={container_mem.get(name, 0.0):.1f}%")
-    container_context = "\n".join(selected[:20]) or "No matching container metrics found."
+    container_context = "\n".join(selected[:20]) or "No container CPU/memory metrics are currently available from Prometheus."
     context = (
         f"Host CPU: {cpu:.1f}%\nHost memory: {mem:.1f}%\nHost disk: {disk:.1f}%\n\n"
         f"Container metrics:\n{container_context}\n\nTop VPS processes:\n{top_processes}"
@@ -57,13 +57,16 @@ async def _diagnose_resource_question(question: str):
         ((name, container_cpu.get(name, 0.0), container_mem.get(name, 0.0)) for name in names),
         key=lambda item: item[1], reverse=True,
     )
-    report = (
-        f"**Host usage:**\nCPU **{cpu:.1f}%** · Memory **{mem:.1f}%** · Disk **{disk:.1f}%**\n\n"
-        f"**Top VPS processes:**\n{top_processes}\n\n"
-        "**Current container usage:**\n" + "\n".join(
+    container_report = "\n".join(
         f"`{name}` — CPU **{cpu_value:.1f}%** · Memory **{mem_value:.1f}%**"
         for name, cpu_value, mem_value in ranking[:10]
-        )
+    )
+    if not container_report:
+        container_report = "No container CPU/memory series were returned by Prometheus."
+    report = (
+        f"**Host usage**\nCPU: **{cpu:.1f}%** · Memory: **{mem:.1f}%** · Disk: **{disk:.1f}%**\n\n"
+        f"{top_processes}\n\n"
+        f"**Current container usage**\n{container_report}"
     )
     try:
         answer = await ask(
@@ -135,6 +138,8 @@ async def handle_natural_message(message: discord.Message) -> bool:
         (
             any(word in lower for word in ("why", "cause", "causing", "explain", "fix", "problem", "which", "what", "using", "high", "too much"))
             or "is so" in lower
+            or ("usage" in lower and any(word in lower for word in ("container", "docker", "system", "host", "vps")))
+            or ("most" in lower and any(word in lower for word in ("cpu", "memory", "ram")))
         )
         and any(word in lower for word in ("cpu", "memory", "ram", "load", "resource"))
     )

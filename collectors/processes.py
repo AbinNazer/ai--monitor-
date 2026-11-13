@@ -24,12 +24,15 @@ async def _top_rows(limit: int = 10) -> list[dict]:
         if len(fields) < 12:
             continue
         try:
+            command = fields[11]
+            if os.path.basename(command.split()[0]) in {"top", "ps"}:
+                continue
             rows.append({
                 "pid": fields[0],
                 "user": fields[1],
                 "cpu": float(fields[8]),
                 "mem": float(fields[9]),
-                "command": fields[11],
+                "command": command,
             })
         except ValueError:
             continue
