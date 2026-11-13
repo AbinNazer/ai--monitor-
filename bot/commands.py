@@ -7,6 +7,7 @@ from discord.ext import commands
 from collectors.prometheus_client import PrometheusClient
 from collectors.k3s_client import get_pod_ports, get_pods
 from collectors.processes import get_top_processes, get_top_users
+from collectors.docker_stats import get_container_stats
 from collectors.docker_control import container_exists, control_container
 from logs_fetch.docker_logs import get_container_error_logs, get_container_logs, get_container_ports, get_container_states, list_all_containers, list_containers, summarize_logs
 from logs_fetch.k3s_logs import get_pod_logs
@@ -35,8 +36,9 @@ async def _diagnose_resource_question(question: str):
     cpu = await prom.node_cpu_percent()
     mem = await prom.node_mem_percent()
     disk = await prom.node_disk_percent()
-    container_cpu = await prom.container_cpu_percent()
-    container_mem = await prom.container_mem_percent()
+    container_stats = await get_container_stats()
+    container_cpu = {item["name"]: item["cpu_percent"] for item in container_stats}
+    container_mem = {item["name"]: item["mem_percent"] for item in container_stats}
     top_processes = await get_top_processes(limit=8)
     states = await get_container_states()
     question_lower = question.lower()

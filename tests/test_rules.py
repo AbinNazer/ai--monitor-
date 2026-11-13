@@ -2,12 +2,12 @@ from rules.evaluator import evaluate_containers, evaluate_pods
 
 
 def test_cpu_breach():
-    breaches = evaluate_containers({"app1": 95.0}, {})
+    breaches = evaluate_containers([{"name": "app1", "cpu_percent": 95.0, "mem_percent": 0.0}])
     assert any(b["alert_type"] == "cpu_high" for b in breaches)
 
 
 def test_no_breach():
-    breaches = evaluate_containers({"app1": 10.0}, {"app1": 10.0})
+    breaches = evaluate_containers([{"name": "app1", "cpu_percent": 10.0, "mem_percent": 10.0}])
     assert breaches == []
 
 

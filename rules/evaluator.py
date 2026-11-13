@@ -1,14 +1,13 @@
 from rules import thresholds
 
 
-def evaluate_containers(cpu: dict[str, float], mem: dict[str, float]) -> list[dict]:
+def evaluate_containers(container_stats: list[dict]) -> list[dict]:
     breaches = []
-    for name, val in cpu.items():
-        if val >= thresholds.CPU_PERCENT_THRESHOLD:
-            breaches.append({"target": name, "alert_type": "cpu_high", "value": val})
-    for name, val in mem.items():
-        if val >= thresholds.MEM_PERCENT_THRESHOLD:
-            breaches.append({"target": name, "alert_type": "mem_high", "value": val})
+    for stats in container_stats:
+        if stats["cpu_percent"] >= thresholds.CPU_PERCENT_THRESHOLD:
+            breaches.append({"target": stats["name"], "alert_type": "cpu_high", "value": stats["cpu_percent"]})
+        if stats["mem_percent"] >= thresholds.MEM_PERCENT_THRESHOLD:
+            breaches.append({"target": stats["name"], "alert_type": "mem_high", "value": stats["mem_percent"]})
     return breaches
 
 

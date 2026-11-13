@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import config
 from collectors.prometheus_client import PrometheusClient
 from collectors.k3s_client import get_pods
+from collectors.docker_stats import get_container_stats
 from rules.evaluator import evaluate_container_states, evaluate_containers, evaluate_node, evaluate_pod_states
 from logs_fetch.docker_logs import get_container_logs, get_container_states
 from logs_fetch.k3s_logs import get_pod_logs
@@ -72,8 +73,7 @@ async def _dispatch(ready: list[dict]):
 
 
 async def poll_once():
-    cpu = await prom.container_cpu_percent()
-    mem = await prom.container_mem_percent()
+    container_stats = await get_container_stats()
     node_cpu = await prom.node_cpu_percent()
     node_mem = await prom.node_mem_percent()
     node_disk = await prom.node_disk_percent()
@@ -107,7 +107,7 @@ async def poll_once():
         await session.commit()
 
     breaches = (
-        evaluate_containers(cpu, mem)
+        evaluate_containers(container_stats)
         + evaluate_container_states(containers, container_states, now, config.DEPLOY_GRACE_SECONDS)
         + evaluate_node(node_cpu, node_mem, node_disk)
         + evaluate_pod_states(pods, pod_states, now, config.DEPLOY_GRACE_SECONDS)
