@@ -8,7 +8,7 @@ from collectors.prometheus_client import PrometheusClient
 from collectors.k3s_client import get_pod_ports, get_pods
 from collectors.processes import get_top_processes, get_top_users
 from collectors.docker_control import container_exists, control_container
-from logs_fetch.docker_logs import get_container_error_logs, get_container_logs, get_container_ports, list_all_containers, list_containers, summarize_logs
+from logs_fetch.docker_logs import get_container_error_logs, get_container_logs, get_container_ports, get_container_states, list_all_containers, list_containers, summarize_logs
 from logs_fetch.k3s_logs import get_pod_logs
 from llm.client import ask
 from bot.formatter import info_embed
@@ -29,6 +29,34 @@ async def _ask_question(question: str):
     pods = await get_pods(namespace=config.K3S_NAMESPACE)
     context = f"Host CPU: {cpu:.1f}%, Mem: {mem:.1f}%\nPods: {pods}"
     return await ask(question, context)
+
+
+async def _diagnose_resource_question(question: str):
+    cpu = await prom.node_cpu_percent()
+    mem = await prom.node_mem_percent()
+    disk = await prom.node_disk_percent()
+    container_cpu = await prom.container_cpu_percent()
+    container_mem = await prom.container_mem_percent()
+    top_processes = await get_top_processes(limit=8)
+    states = await get_container_states()
+    question_lower = question.lower()
+    matching = [item for item in states if item["name"].lower() in question_lower]
+    if matching:
+        names = {item["name"] for item in matching}
+    else:
+        names = set(container_cpu) | set(container_mem)
+    selected = []
+    for name in names:
+        selected.append(f"{name}: CPU={container_cpu.get(name, 0.0):.1f}%, MEM={container_mem.get(name, 0.0):.1f}%")
+    container_context = "\n".join(selected[:20]) or "No matching container metrics found."
+    context = (
+        f"Host CPU: {cpu:.1f}%\nHost memory: {mem:.1f}%\nHost disk: {disk:.1f}%\n\n"
+        f"Container metrics:\n{container_context}\n\nTop VPS processes:\n{top_processes}"
+    )
+    return await ask(
+        question + " Give the likely cause, evidence from the metrics, and concrete commands or steps to fix it.",
+        context,
+    )
 
 
 async def _send_log_result(channel, title: str, output: str):
@@ -85,6 +113,15 @@ async def handle_natural_message(message: discord.Message) -> bool:
     lower = text.lower()
     if not text or lower.startswith(("!", "/")):
         return False
+
+    resource_question = (
+        any(word in lower for word in ("why", "cause", "causing", "explain", "fix", "problem"))
+        and any(word in lower for word in ("cpu", "memory", "ram", "load", "resource"))
+    )
+    if resource_question:
+        answer = await _diagnose_resource_question(text)
+        await message.channel.send(embed=info_embed("AI resource diagnosis", answer))
+        return True
 
     if "top" in lower and any(word in lower for word in ("process", "user", "cpu", "memory", "ram")):
         output = await get_top_users() if "user" in lower else await get_top_processes()
