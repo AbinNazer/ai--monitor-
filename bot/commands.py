@@ -53,10 +53,27 @@ async def _diagnose_resource_question(question: str):
         f"Host CPU: {cpu:.1f}%\nHost memory: {mem:.1f}%\nHost disk: {disk:.1f}%\n\n"
         f"Container metrics:\n{container_context}\n\nTop VPS processes:\n{top_processes}"
     )
-    return await ask(
-        question + " Give the likely cause, evidence from the metrics, and concrete commands or steps to fix it.",
-        context,
+    ranking = sorted(
+        ((name, container_cpu.get(name, 0.0), container_mem.get(name, 0.0)) for name in names),
+        key=lambda item: item[1], reverse=True,
     )
+    report = (
+        f"**Host usage:**\nCPU **{cpu:.1f}%** · Memory **{mem:.1f}%** · Disk **{disk:.1f}%**\n\n"
+        f"**Top VPS processes:**\n{top_processes}\n\n"
+        "**Current container usage:**\n" + "\n".join(
+        f"`{name}` — CPU **{cpu_value:.1f}%** · Memory **{mem_value:.1f}%**"
+        for name, cpu_value, mem_value in ranking[:10]
+        )
+    )
+    try:
+        answer = await ask(
+            question + " Give the likely cause, evidence from the metrics, and concrete commands or steps to fix it.",
+            context,
+        )
+    except Exception as error:
+        print(f"Resource AI diagnosis failed: {type(error).__name__}: {error}", flush=True)
+        answer = "AI explanation is currently unavailable. The live ranking above is still valid."
+    return report + "\n\n**Diagnosis:**\n" + answer
 
 
 async def _send_log_result(channel, title: str, output: str):
@@ -115,7 +132,10 @@ async def handle_natural_message(message: discord.Message) -> bool:
         return False
 
     resource_question = (
-        any(word in lower for word in ("why", "cause", "causing", "explain", "fix", "problem"))
+        (
+            any(word in lower for word in ("why", "cause", "causing", "explain", "fix", "problem", "which", "what", "using", "high", "too much"))
+            or "is so" in lower
+        )
         and any(word in lower for word in ("cpu", "memory", "ram", "load", "resource"))
     )
     if resource_question:
